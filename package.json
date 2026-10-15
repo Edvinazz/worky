@@ -1,0 +1,452 @@
+{
+	"name": "worky",
+	"displayName": "Worky",
+	"description": "Git worktrees, GitHub pull requests, and repository-defined setup terminals.",
+	"version": "0.1.3",
+	"publisher": "Luksys3",
+	"license": "UNLICENSED",
+	"private": true,
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/Luksys3/worky.git"
+	},
+	"engines": {
+		"vscode": "^1.96.0"
+	},
+	"categories": [
+		"Other"
+	],
+	"extensionKind": [
+		"workspace"
+	],
+	"activationEvents": [
+		"onStartupFinished"
+	],
+	"main": "./dist/extension.js",
+	"capabilities": {
+		"untrustedWorkspaces": {
+			"supported": false,
+			"description": "Worky runs Git and application setup scripts in the workspace."
+		},
+		"virtualWorkspaces": false
+	},
+	"contributes": {
+		"viewsContainers": {
+			"activitybar": [
+				{
+					"id": "worky",
+					"title": "Worky",
+					"icon": "media/worky.svg"
+				}
+			]
+		},
+		"views": {
+			"worky": [
+				{
+					"id": "worky.worktrees",
+					"name": "Worktrees"
+				},
+				{
+					"id": "worky.pullRequests",
+					"name": "Pull Requests",
+					"when": "worky.pullRequestsEnabled"
+				}
+			]
+		},
+		"commands": [
+			{
+				"command": "worky.create",
+				"title": "Create New Worktree",
+				"category": "Worky",
+				"icon": "$(add)"
+			},
+			{
+				"command": "worky.refresh",
+				"title": "Refresh",
+				"category": "Worky",
+				"icon": "$(refresh)"
+			},
+			{
+				"command": "worky.open",
+				"title": "Open Worktree",
+				"category": "Worky",
+				"icon": "$(go-to-file)"
+			},
+			{
+				"command": "worky.openNewWindow",
+				"title": "Open in New Window",
+				"category": "Worky",
+				"icon": "$(empty-window)"
+			},
+			{
+				"command": "worky.remove",
+				"title": "Delete Worktree",
+				"category": "Worky",
+				"icon": "$(trash)"
+			},
+			{
+				"command": "worky.retrySetup",
+				"title": "Retry Failed Setup",
+				"category": "Worky",
+				"icon": "$(debug-restart)"
+			},
+			{
+				"command": "worky.openPullRequest",
+				"title": "Open PR in Worktree",
+				"category": "Worky",
+				"enablement": "worky.pullRequestsEnabled"
+			},
+			{
+				"command": "worky.openPullRequestNewWindow",
+				"title": "Open in New Window",
+				"category": "Worky",
+				"icon": "$(empty-window)",
+				"enablement": "worky.pullRequestsEnabled"
+			},
+			{
+				"command": "worky.openPullRequestOnGitHub",
+				"title": "Open on GitHub",
+				"category": "Worky",
+				"icon": "$(link-external)",
+				"enablement": "worky.pullRequestsEnabled"
+			},
+			{
+				"command": "worky.signIn",
+				"title": "Sign in to GitHub",
+				"category": "Worky",
+				"icon": "$(github)",
+				"enablement": "worky.pullRequestsEnabled"
+			},
+			{
+				"command": "worky.settings",
+				"title": "Open Settings",
+				"category": "Worky",
+				"icon": "$(gear)"
+			},
+			{
+				"command": "worky.showLog",
+				"title": "Show Log",
+				"category": "Worky"
+			},
+			{
+				"command": "worky.openInT3",
+				"title": "Open in T3 Code",
+				"category": "Worky",
+				"icon": "$(comment-discussion)"
+			},
+			{
+				"command": "worky.openCurrentInT3",
+				"title": "Open Chat",
+				"category": "Worky",
+				"icon": "$(comment-discussion)",
+				"enablement": "worky.hasCurrentWorktree && !worky.currentWorktreeBusy"
+			},
+			{
+				"command": "worky.newT3Thread",
+				"title": "New T3 Thread",
+				"category": "Worky",
+				"icon": "$(comment-add)"
+			},
+			{
+				"command": "worky.openCurrentWindow",
+				"title": "Open in Current Window",
+				"category": "Worky",
+				"icon": "$(go-to-file)"
+			},
+			{
+				"command": "worky.openPullRequestCurrentWindow",
+				"title": "Open in Current Window",
+				"category": "Worky",
+				"icon": "$(go-to-file)",
+				"enablement": "worky.pullRequestsEnabled"
+			},
+			{
+				"command": "worky.newCurrentT3Thread",
+				"title": "New Thread",
+				"category": "Worky",
+				"icon": "$(comment-add)",
+				"enablement": "worky.hasCurrentWorktree && !worky.currentWorktreeBusy"
+			},
+			{
+				"command": "worky.currentWorktreeBusy",
+				"title": "Working on Current Worktree…",
+				"category": "Worky",
+				"icon": "$(loading~spin)",
+				"enablement": "false"
+			},
+			{
+				"command": "worky.openCurrentPullRequestOnGitHub",
+				"title": "Open Current Pull Request on GitHub",
+				"category": "Worky",
+				"icon": "$(git-pull-request)",
+				"enablement": "worky.pullRequestsEnabled && worky.hasCurrentPullRequest"
+			}
+		],
+		"menus": {
+			"view/title": [
+				{
+					"command": "worky.create",
+					"when": "view == worky.worktrees",
+					"group": "navigation@4"
+				},
+				{
+					"command": "worky.refresh",
+					"when": "view == worky.worktrees || view == worky.pullRequests",
+					"group": "navigation@5"
+				},
+				{
+					"command": "worky.settings",
+					"when": "view == worky.worktrees",
+					"group": "settings@1"
+				},
+				{
+					"command": "worky.openCurrentInT3",
+					"when": "view == worky.worktrees && !worky.currentWorktreeBusy",
+					"group": "navigation@1"
+				},
+				{
+					"command": "worky.newCurrentT3Thread",
+					"when": "view == worky.worktrees && !worky.currentWorktreeBusy",
+					"group": "navigation@2"
+				},
+				{
+					"command": "worky.currentWorktreeBusy",
+					"when": "view == worky.worktrees && worky.currentWorktreeBusy",
+					"group": "navigation@1"
+				},
+				{
+					"command": "worky.openCurrentPullRequestOnGitHub",
+					"when": "view == worky.worktrees && worky.pullRequestsEnabled",
+					"group": "navigation@3"
+				}
+			],
+			"view/item/context": [
+				{
+					"command": "worky.openNewWindow",
+					"when": "view == worky.worktrees && viewItem =~ /^worktree/ && viewItem != worktree-busy && !config.worky.openInNewWindow",
+					"group": "inline@2"
+				},
+				{
+					"command": "worky.remove",
+					"when": "view == worky.worktrees && viewItem =~ /removable/",
+					"group": "inline@3"
+				},
+				{
+					"command": "worky.retrySetup",
+					"when": "view == worky.worktrees && viewItem =~ /retry/",
+					"group": "inline@1"
+				},
+				{
+					"command": "worky.openPullRequestNewWindow",
+					"when": "view == worky.pullRequests && viewItem == pullRequest && !config.worky.openInNewWindow",
+					"group": "inline@1"
+				},
+				{
+					"command": "worky.openPullRequestOnGitHub",
+					"when": "view == worky.pullRequests && viewItem == pullRequest",
+					"group": "inline@2"
+				},
+				{
+					"command": "worky.openInT3",
+					"when": "view == worky.worktrees && viewItem =~ /^worktree/ && viewItem != worktree-busy",
+					"group": "inline@1.5"
+				},
+				{
+					"command": "worky.newT3Thread",
+					"when": "view == worky.worktrees && viewItem =~ /^worktree/ && viewItem != worktree-busy",
+					"group": "t3@1"
+				},
+				{
+					"command": "worky.openCurrentWindow",
+					"when": "view == worky.worktrees && viewItem =~ /^worktree/ && viewItem != worktree-busy && config.worky.openInNewWindow",
+					"group": "inline@2"
+				},
+				{
+					"command": "worky.openNewWindow",
+					"when": "view == worky.worktrees && viewItem =~ /^worktree/ && viewItem != worktree-busy && !config.worky.openInNewWindow",
+					"group": "open@1"
+				},
+				{
+					"command": "worky.openCurrentWindow",
+					"when": "view == worky.worktrees && viewItem =~ /^worktree/ && viewItem != worktree-busy && config.worky.openInNewWindow",
+					"group": "open@1"
+				},
+				{
+					"command": "worky.openPullRequestCurrentWindow",
+					"when": "view == worky.pullRequests && viewItem == pullRequest && config.worky.openInNewWindow",
+					"group": "inline@1"
+				},
+				{
+					"command": "worky.openPullRequestNewWindow",
+					"when": "view == worky.pullRequests && viewItem == pullRequest && !config.worky.openInNewWindow",
+					"group": "open@1"
+				},
+				{
+					"command": "worky.openPullRequestCurrentWindow",
+					"when": "view == worky.pullRequests && viewItem == pullRequest && config.worky.openInNewWindow",
+					"group": "open@1"
+				}
+			],
+			"commandPalette": [
+				{
+					"command": "worky.create",
+					"when": "true"
+				},
+				{
+					"command": "worky.openNewWindow",
+					"when": "false"
+				},
+				{
+					"command": "worky.openPullRequestNewWindow",
+					"when": "false"
+				},
+				{
+					"command": "worky.open",
+					"when": "false"
+				},
+				{
+					"command": "worky.remove",
+					"when": "false"
+				},
+				{
+					"command": "worky.retrySetup",
+					"when": "false"
+				},
+				{
+					"command": "worky.openPullRequest",
+					"when": "false"
+				},
+				{
+					"command": "worky.openPullRequestOnGitHub",
+					"when": "false"
+				},
+				{
+					"command": "worky.openInT3",
+					"when": "false"
+				},
+				{
+					"command": "worky.newT3Thread",
+					"when": "false"
+				},
+				{
+					"command": "worky.signIn",
+					"when": "worky.pullRequestsEnabled"
+				},
+				{
+					"command": "worky.openCurrentWindow",
+					"when": "false"
+				},
+				{
+					"command": "worky.openPullRequestCurrentWindow",
+					"when": "false"
+				},
+				{
+					"command": "worky.currentWorktreeBusy",
+					"when": "false"
+				},
+				{
+					"command": "worky.openCurrentPullRequestOnGitHub",
+					"when": "worky.pullRequestsEnabled"
+				}
+			]
+		},
+		"configuration": {
+			"title": "Worky",
+			"properties": {
+				"worky.repositoryPath": {
+					"type": "string",
+					"default": "",
+					"scope": "machine",
+					"description": "Optional repository path override. Empty detects the Git repository from the open workspace."
+				},
+				"worky.worktreesPath": {
+					"type": "string",
+					"default": "",
+					"scope": "machine",
+					"description": "Directory for new worktrees. Empty uses ~/worktrees/<repository name>."
+				},
+				"worky.baseBranch": {
+					"type": "string",
+					"default": "",
+					"scope": "machine",
+					"description": "Optional base branch override. Empty uses worky.json or the remote default branch."
+				},
+				"worky.remote": {
+					"type": "string",
+					"default": "",
+					"scope": "machine",
+					"description": "Optional remote override. Empty uses worky.json, origin, or the first Git remote."
+				},
+				"worky.shellPath": {
+					"type": "string",
+					"default": "",
+					"scope": "machine",
+					"description": "Optional Bash executable override for setup terminals. Empty uses the VS Code terminal profile, running setup commands in a Bash child. Bash must be installed."
+				},
+				"worky.t3.serverUrl": {
+					"type": "string",
+					"default": "http://127.0.0.1:3773",
+					"scope": "machine",
+					"description": "Loopback URL of T3 Code on the machine hosting the worktrees."
+				},
+				"worky.t3.baseDirectory": {
+					"type": "string",
+					"default": "~/.t3",
+					"scope": "machine",
+					"description": "T3 Code data directory on the remote machine. Worky uses its CLI to issue short-lived access tokens."
+				},
+				"worky.t3.cliPath": {
+					"type": "string",
+					"default": "",
+					"scope": "machine",
+					"description": "Optional absolute path to the remote t3 executable. Empty uses the installed runtime matching the running server version."
+				},
+				"worky.openInNewWindow": {
+					"type": "boolean",
+					"default": false,
+					"scope": "window",
+					"description": "Open worktrees, pull requests, and newly created worktrees in a new VS Code window by default. The row button and context-menu action open in the opposite window."
+				}
+			}
+		},
+		"jsonValidation": [
+			{
+				"fileMatch": "worky.json",
+				"url": "./schema/worky.schema.json"
+			}
+		],
+		"keybindings": [
+			{
+				"command": "worky.openCurrentInT3",
+				"key": "ctrl+shift+t",
+				"when": "isMac && worky.hasCurrentWorktree && !worky.currentWorktreeBusy"
+			}
+		]
+	},
+	"scripts": {
+		"format": "prettier --write .",
+		"format:check": "prettier --check .",
+		"build": "node esbuild.mjs",
+		"watch": "node esbuild.mjs --watch",
+		"typecheck": "tsc --noEmit",
+		"test": "tsx --test test/*.test.ts",
+		"test:integration": "node test/run-integration.mjs",
+		"vscode:prepublish": "pnpm typecheck && pnpm build",
+		"package": "vsce package --no-dependencies --allow-missing-repository --out worky-0.1.3.vsix"
+	},
+	"packageManager": "pnpm@11.4.0",
+	"devDependencies": {
+		"@types/node": "^22.20.5",
+		"@types/vscode": "1.96.0",
+		"@types/ws": "^8.18.2",
+		"@vscode/test-electron": "^3.1.0",
+		"@vscode/vsce": "^4.0.0",
+		"esbuild": "^0.28.2",
+		"prettier": "^3.9.10",
+		"tsx": "^4.23.15",
+		"typescript": "^7.0.2"
+	},
+	"dependencies": {
+		"ws": "^8.22.0"
+	}
+}

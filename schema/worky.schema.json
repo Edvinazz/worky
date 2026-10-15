@@ -1,0 +1,60 @@
+{
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"title": "Worky repository configuration",
+	"type": "object",
+	"additionalProperties": false,
+	"properties": {
+		"$schema": {
+			"type": "string"
+		},
+		"baseBranch": {
+			"type": "string",
+			"minLength": 1,
+			"description": "Base branch for new branches. Omit to discover the remote default branch."
+		},
+		"remote": {
+			"type": "string",
+			"minLength": 1,
+			"description": "Git remote. Omit to use origin, or the first available remote."
+		},
+		"setup": {
+			"type": "array",
+			"description": "Commands to run in separate interactive terminals, in parallel, after Worky creates a worktree. Omit for no setup.",
+			"items": {
+				"type": "object",
+				"required": ["name", "command"],
+				"additionalProperties": false,
+				"properties": {
+					"name": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Unique terminal name."
+					},
+					"cwd": {
+						"type": "string",
+						"default": ".",
+						"minLength": 1,
+						"description": "Directory relative to the new worktree root. Use forward slashes; parent traversal and absolute paths are not allowed."
+					},
+					"command": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Bash command to run. The terminal stays interactive afterwards."
+					}
+				}
+			}
+		},
+		"pullRequests": {
+			"type": "object",
+			"additionalProperties": false,
+			"description": "Pull request features for this checkout.",
+			"properties": {
+				"enabled": {
+					"type": "boolean",
+					"default": true,
+					"description": "Disable to hide the PR view and sign-in action, cancel active requests, and stop PR loading."
+				}
+			}
+		}
+	}
+}

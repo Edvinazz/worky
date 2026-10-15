@@ -1,0 +1,15 @@
+{
+	"baseBranch": "development",
+	"setup": [
+		{
+			"name": "Web",
+			"cwd": "apps/web",
+			"command": "pnpm run setup"
+		},
+		{
+			"name": "API",
+			"cwd": "apps/api",
+			"command": "pnpm run setup"
+		}
+	]
+}
