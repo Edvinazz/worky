@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { Notifications } from "./notifications";
 import * as path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
@@ -304,6 +305,7 @@ export class SetupManager {
 		private readonly tasks: TerminalTasks,
 		private readonly changed: () => void,
 		private readonly log: (line: string) => void,
+		private readonly notifications: Pick<Notifications, "show">,
 	) {}
 
 	resume(
@@ -423,12 +425,11 @@ export class SetupManager {
 				state.setup.status = setupStatus(state.setup.tasks);
 				await persist();
 				if (state.setup.status === "ready") {
-					void vscode.window.showInformationMessage(
-						"Worky: setup finished.",
-					);
+					this.notifications.show("Worky: setup finished.");
 				} else {
-					void vscode.window.showWarningMessage(
+					this.notifications.show(
 						"Worky: setup did not finish successfully. Check the setup terminals; Retry Failed Setup reruns only unfinished commands.",
+						"warning",
 					);
 				}
 			});

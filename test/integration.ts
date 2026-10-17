@@ -9,6 +9,8 @@ import { testActions } from "./actions-integration";
 import { testPullRequestSetting } from "./pull-requests-integration";
 import { testWorkspaceActions } from "./workspace-actions-integration";
 import { testCurrentPullRequest } from "./current-pull-request-integration";
+import { CitationStore } from "../src/citation-store";
+import { testCitations } from "./citations-integration";
 import { testDuplicate } from "./duplicate-integration";
 
 async function waitFor(
@@ -65,6 +67,8 @@ export async function run(): Promise<void> {
 		const commands = await vscode.commands.getCommands(true);
 		for (const name of [
 			"worky.duplicate",
+			"worky.cite",
+			"worky.retryCitation",
 			"worky.openInT3",
 			"worky.openCurrentInT3",
 			"worky.newT3Thread",
@@ -168,6 +172,7 @@ export async function run(): Promise<void> {
 					tasks,
 					() => {},
 					() => {},
+					{ show() {} },
 				);
 				await fs.writeFile(path.join(f.events, "web.fail"), "");
 				await manager.retry(f.worktree);
@@ -287,7 +292,34 @@ export async function run(): Promise<void> {
 			await testWorkspaceActions(worky);
 			await testCurrentPullRequest(worky);
 			await testDuplicate(worky);
+			await testCitations(worky);
+			await new CitationStore(state, f.worktree).add(
+				{
+					file: "reload.ts",
+					startLine: 1,
+					startColumn: 1,
+					endLine: 1,
+					endColumn: 12,
+					language: "typescript",
+					code: "const x = 1",
+					unsaved: true,
+				},
+				"Survives reload",
+			);
 		} else {
+			const citations = new CitationStore(state, f.worktree);
+			const batch = await citations.read();
+			assert.equal(
+				batch.items.length,
+				1,
+				"citation survives an actual VS Code restart",
+			);
+			assert.ok(
+				batch.items[0]!.markdown.includes(
+					"```typescript\nconst x = 1\n```",
+				),
+			);
+			await citations.clear(batch);
 			// A fresh extension host opening an already prepared worktree must do nothing.
 			await new Promise((resolve) => setTimeout(resolve, 1500));
 			assert.equal((await calls("web")).length, 5);
