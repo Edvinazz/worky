@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { git, matchesPullRequest, parseWorktrees, Worktrees } from "./git";
 import { readConfig } from "./config";
+import { canonicalPath, isWithinDirectory } from "./paths";
 import { GitHubClient } from "./github";
 import { message, PullRequest, Worktree } from "./model";
 import { SetupManager, TerminalTasks } from "./setup";
@@ -76,6 +77,9 @@ export class Worky implements vscode.Disposable {
 		};
 		command("refresh", () => this.refresh(true));
 		command("create", () => this.create());
+		command("duplicate", (item?: WorktreeItem) =>
+			this.duplicate(item?.worktree),
+		);
 		command("open", (item: WorktreeItem) => this.open(item.worktree));
 		command("openNewWindow", (item: WorktreeItem) =>
 			this.open(item.worktree, true),
@@ -619,6 +623,80 @@ export class Worky implements vscode.Disposable {
 					},
 				),
 		);
+	}
+
+	private async duplicate(source?: Worktree): Promise<void> {
+		if (this.creating) return;
+		const selected =
+			source ??
+			this.worktreeView.items.find(
+				(item) => item.path === this.worktreeView.currentPath,
+			);
+		if (!selected)
+			throw new Error(
+				"Open a worktree or select one in the Worktrees view first.",
+			);
+		this.creating = true;
+		try {
+			await this.withWorktreeActivity(
+				selected,
+				"Duplicating…",
+				async () => {
+					const repository = this.requireRepository();
+					const branch = await this.duplicateBranch(selected);
+					if (!branch) return;
+					const sourcePath = await canonicalPath(selected.path);
+					for (const document of vscode.workspace.textDocuments) {
+						if (!document.isDirty || document.isUntitled) continue;
+						const filename = document.uri.fsPath;
+						if (
+							isWithinDirectory(selected.path, filename) ||
+							isWithinDirectory(
+								sourcePath,
+								await canonicalPath(filename),
+							)
+						)
+							throw new Error(
+								"Save the source worktree’s edited files before duplicating it.",
+							);
+					}
+					this.worktreeView.creating = branch;
+					this.worktreeView.refresh();
+					const duplicate = await vscode.window.withProgress(
+						{
+							location: vscode.ProgressLocation.Notification,
+							title: `Worky: duplicating ${selected.branch ?? "worktree"} as ${branch}`,
+						},
+						() => repository.duplicate(selected.path, branch),
+					);
+					await this.refreshWorktrees(true);
+					await this.open(duplicate);
+				},
+			);
+		} finally {
+			this.creating = false;
+			this.worktreeView.creating = undefined;
+			this.worktreeView.refresh();
+		}
+	}
+
+	private duplicateBranch(source: Worktree): Thenable<string | undefined> {
+		const repository = this.requireRepository();
+		return vscode.window.showInputBox({
+			title: "Duplicate Worktree",
+			prompt: `New branch for a copy of ${source.branch ?? "detached checkout"}, including saved changes and untracked files. Ignored files and automatic setup are excluded.`,
+			value: `${source.branch ?? "worktree"}-copy`,
+			ignoreFocusOut: true,
+			validateInput: async (value) => {
+				if (!value) return undefined;
+				try {
+					await repository.validateBranch(value);
+					return undefined;
+				} catch (error) {
+					return message(error);
+				}
+			},
+		});
 	}
 
 	private async openPullRequest(

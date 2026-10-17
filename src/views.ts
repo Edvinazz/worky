@@ -81,6 +81,12 @@ export class WorktreeItem extends vscode.TreeItem {
 			? "worktree-busy"
 			: [
 					"worktree",
+					!worktree.bare &&
+					!worktree.prunable &&
+					setup !== "running" &&
+					setup !== "pending"
+						? "duplicable"
+						: "",
 					!worktree.main &&
 					!current &&
 					!worktree.locked &&

@@ -55,6 +55,12 @@
 		},
 		"commands": [
 			{
+				"command": "worky.duplicate",
+				"title": "Duplicate Worktree…",
+				"category": "Worky",
+				"icon": "$(copy)"
+			},
+			{
 				"command": "worky.create",
 				"title": "Create New Worktree",
 				"category": "Worky",
@@ -222,6 +228,11 @@
 			],
 			"view/item/context": [
 				{
+					"command": "worky.duplicate",
+					"when": "view == worky.worktrees && viewItem =~ /duplicable/",
+					"group": "worktree@1"
+				},
+				{
 					"command": "worky.openNewWindow",
 					"when": "view == worky.worktrees && viewItem =~ /^worktree/ && viewItem != worktree-busy && !config.worky.openInNewWindow",
 					"group": "inline@2"
@@ -288,6 +299,10 @@
 				}
 			],
 			"commandPalette": [
+				{
+					"command": "worky.duplicate",
+					"when": "worky.hasCurrentWorktree && !worky.currentWorktreeBusy"
+				},
 				{
 					"command": "worky.create",
 					"when": "true"

@@ -5,6 +5,7 @@ Manage Git worktrees and GitHub pull requests in VS Code. Works locally and over
 ## Features
 
 - Create, open, and delete worktrees, including those created by other tools.
+- Duplicate any checkout, including the main checkout, with its staged edits, unstaged edits, and untracked files.
 - Open a PR in its existing worktree or create one for it.
 - Open the current worktree's PR on GitHub using the pull-request button beside the chat actions in the Worktrees header. Hover the current worktree to see its PR number and title. The button is disabled when no open PR matches and hidden when the checkout disables PR features.
 - See the current PR first, followed by PRs requesting your review.
