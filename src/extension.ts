@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { git, matchesPullRequest, parseWorktrees, Worktrees } from "./git";
@@ -8,6 +9,9 @@ import { GitHubClient } from "./github";
 import { message, PullRequest, Worktree } from "./model";
 import { SetupManager, TerminalTasks } from "./setup";
 import { T3Client } from "./t3";
+import { Citations, CitationDestination, CitationRow } from "./citations";
+import { Notifications } from "./notifications";
+import { CitationStore } from "./citation-store";
 import {
 	pullRequestKey,
 	PullRequestItem,
@@ -38,8 +42,12 @@ export class Worky implements vscode.Disposable {
 	private refreshTimer?: NodeJS.Timeout;
 	private creating = false;
 	private t3?: { key: string; client: T3Client };
+	private readonly citations: Citations;
 	private readonly disposables: vscode.Disposable[] = [];
 	private readonly log = vscode.window.createOutputChannel("Worky");
+	private readonly notifications = new Notifications((line) =>
+		this.log.appendLine(line),
+	);
 	private readonly trees: vscode.TreeView<WorktreeItem | vscode.TreeItem>[] =
 		[];
 
@@ -60,6 +68,7 @@ export class Worky implements vscode.Disposable {
 			this.worktreeView,
 			this.pullRequestView,
 			this.log,
+			this.notifications,
 		);
 		const command = (name: string, action: (...args: any[]) => unknown) => {
 			this.disposables.push(
@@ -75,6 +84,54 @@ export class Worky implements vscode.Disposable {
 				),
 			);
 		};
+		const citations = (this.citations = new Citations(
+			async (file) => {
+				const repository = this.requireRepository();
+				// Historical files (including their directories) may no longer exist.
+				let directory = path.dirname(file);
+				while (
+					!(
+						await fs.stat(directory).catch(() => undefined)
+					)?.isDirectory()
+				) {
+					const parent = path.dirname(directory);
+					if (parent === directory)
+						throw new Error("Cannot locate the source repository.");
+					directory = parent;
+				}
+				const root = (
+					await git(directory, ["rev-parse", "--show-toplevel"])
+				).trim();
+				const worktree = (await repository.list(false)).find(
+					(item) => item.path === root,
+				);
+				if (!worktree || worktree.bare || worktree.prunable)
+					throw new Error(
+						"The selected file must belong to a worktree of this window's repository.",
+					);
+				return this.citationDestination(worktree);
+			},
+			() => {
+				const worktree = this.worktreeView.items.find(
+					(item) => item.path === this.worktreeView.currentPath,
+				);
+				return this.repository && worktree
+					? this.citationDestination(worktree)
+					: undefined;
+			},
+			this.notifications,
+		));
+		this.disposables.push(citations);
+		command("cite", (uri?: vscode.Uri) => citations.cite(uri));
+		command("retryCitation", () => citations.send(true));
+		command("sendCitations", () => citations.send());
+		command("selectCitationThread", () => citations.selectThread());
+		command("clearCitations", () => citations.clear());
+		command("previewCitation", (row: CitationRow) =>
+			citations.preview(row),
+		);
+		command("editCitation", (row: CitationRow) => citations.edit(row));
+		command("removeCitation", (row: CitationRow) => citations.remove(row));
 		command("refresh", () => this.refresh(true));
 		command("create", () => this.create());
 		command("duplicate", (item?: WorktreeItem) =>
@@ -185,8 +242,7 @@ export class Worky implements vscode.Disposable {
 	}
 
 	private report(error: unknown): void {
-		this.log.appendLine(message(error));
-		void vscode.window.showErrorMessage(`Worky: ${message(error)}`);
+		this.notifications.show(`Worky: ${message(error)}`, "error");
 	}
 
 	private changed = (): void => {
@@ -284,6 +340,7 @@ export class Worky implements vscode.Disposable {
 					tasks,
 					this.changed,
 					(line) => this.log.appendLine(line),
+					this.notifications,
 				);
 			}
 			this.worktreeView.items = await this.repository.list();
@@ -310,6 +367,7 @@ export class Worky implements vscode.Disposable {
 		this.worktreeView.refresh();
 		this.pullRequestView.refresh();
 		this.updateCurrentWorktreeContext();
+		await this.citations.refresh();
 	}
 
 	private currentFolder(): vscode.WorkspaceFolder | undefined {
@@ -426,7 +484,7 @@ export class Worky implements vscode.Disposable {
 			: undefined;
 		if (pr) await this.openPullRequestOnGitHub(pr);
 		else
-			void vscode.window.showInformationMessage(
+			this.notifications.show(
 				"Worky: no open pull request is available for the current worktree.",
 			);
 	}
@@ -615,8 +673,9 @@ export class Worky implements vscode.Disposable {
 					async () => {
 						const result = await repository.create(branch);
 						if (result.notice)
-							void vscode.window.showWarningMessage(
+							this.notifications.show(
 								`Worky: ${result.notice}`,
+								"warning",
 							);
 						await this.refreshWorktrees(true);
 						await this.open(result.worktree);
@@ -743,10 +802,7 @@ export class Worky implements vscode.Disposable {
 			() => this.requireRepository().create(branch, pr),
 		);
 		await this.refreshWorktrees(true);
-		if (result.notice)
-			void vscode.window.showInformationMessage(
-				`Worky: ${result.notice}`,
-			);
+		if (result.notice) this.notifications.show(`Worky: ${result.notice}`);
 		if (alreadyBusy) await this.openFolder(result.worktree, newWindow);
 		else await this.open(result.worktree, newWindow);
 	}
@@ -768,6 +824,42 @@ export class Worky implements vscode.Disposable {
 		});
 	}
 
+	private citationDestination(worktree: Worktree): CitationDestination {
+		const repository = this.requireRepository();
+		return {
+			worktree,
+			store: new CitationStore(repository.state, worktree.path),
+			choices: () => this.t3Client().citationChoices(worktree.path),
+			send: (request, checkpoint) =>
+				repository.state.withLock(`t3:${worktree.path}`, () =>
+					this.t3Client().sendCitation(
+						worktree,
+						repository.mainPath,
+						request,
+						checkpoint,
+					),
+				),
+		};
+	}
+
+	private t3Client(): T3Client {
+		const config = vscode.workspace.getConfiguration("worky");
+		const values = {
+			serverUrl:
+				config.get<string>("t3.serverUrl") || "http://127.0.0.1:3773",
+			baseDirectory: expandHome(
+				config.get<string>("t3.baseDirectory") || "~/.t3",
+			),
+			cliPath: config.get<string>("t3.cliPath")
+				? expandHome(config.get<string>("t3.cliPath")!)
+				: undefined,
+		};
+		const key = JSON.stringify(values);
+		if (this.t3?.key !== key)
+			this.t3 = { key, client: new T3Client(values) };
+		return this.t3!.client;
+	}
+
 	private async openInT3(
 		worktree: Worktree,
 		newThread = false,
@@ -776,21 +868,7 @@ export class Worky implements vscode.Disposable {
 			worktree,
 			"Opening in T3…",
 			async () => {
-				const config = vscode.workspace.getConfiguration("worky");
-				const values = {
-					serverUrl:
-						config.get<string>("t3.serverUrl") ||
-						"http://127.0.0.1:3773",
-					baseDirectory: expandHome(
-						config.get<string>("t3.baseDirectory") || "~/.t3",
-					),
-					cliPath: config.get<string>("t3.cliPath")
-						? expandHome(config.get<string>("t3.cliPath")!)
-						: undefined,
-				};
-				const key = JSON.stringify(values);
-				if (this.t3?.key !== key)
-					this.t3 = { key, client: new T3Client(values) };
+				const client = this.t3Client();
 				const repository = this.requireRepository();
 				const target = await vscode.window.withProgress(
 					{
@@ -799,7 +877,7 @@ export class Worky implements vscode.Disposable {
 					},
 					() =>
 						repository.state.withLock(`t3:${worktree.path}`, () =>
-							this.t3!.client.open(
+							client.open(
 								worktree,
 								repository.mainPath,
 								newThread,

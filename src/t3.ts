@@ -31,6 +31,7 @@ export interface T3Project {
 	defaultModelSelection?: T3Model | null;
 }
 export interface T3Thread {
+	title?: string;
 	id: string;
 	projectId: string;
 	worktreePath: string | null;
@@ -54,6 +55,33 @@ export interface T3Target {
 	created: boolean;
 }
 
+export interface T3CitationSelection {
+	kind: "thread" | "new";
+	threadId?: string;
+	title: string;
+	origin: string;
+	environmentId: string;
+}
+export interface T3CitationChoices {
+	origin: string;
+	environmentId: string;
+	threads: T3Thread[];
+}
+
+export interface T3CitationRequest {
+	selection?: T3CitationSelection;
+	origin?: string;
+	text: string;
+	commandId: string;
+	messageId: string;
+	target?: T3Target;
+	createCommand?: Record<string, unknown>;
+}
+
+export function createCitationRequest(text: string): T3CitationRequest {
+	return { text, commandId: randomUUID(), messageId: randomUUID() };
+}
+
 export function t3ThreadUrl(environmentId: string, threadId: string): string {
 	if (!environmentId || !threadId)
 		throw new Error("T3 returned an invalid thread identity.");
@@ -70,10 +98,10 @@ function recent(a: T3Thread, b: T3Thread): number {
 	);
 }
 
-export function findT3Thread(
+export function listT3Threads(
 	snapshot: T3Snapshot,
 	worktreePath: string,
-): T3Thread | undefined {
+): T3Thread[] {
 	const projects = new Map(
 		snapshot.projects
 			.filter((project) => !project.deletedAt)
@@ -92,7 +120,14 @@ export function findT3Thread(
 				)
 			);
 		})
-		.sort(recent)[0];
+		.sort(recent);
+}
+
+export function findT3Thread(
+	snapshot: T3Snapshot,
+	worktreePath: string,
+): T3Thread | undefined {
+	return listT3Threads(snapshot, worktreePath)[0];
 }
 
 export function t3CreateCommand(
@@ -354,7 +389,7 @@ export class T3Client {
 				() =>
 					finish(
 						new Error(
-							"T3 did not acknowledge the thread operation. Try opening it again; Worky checks for an existing thread first.",
+							"T3 did not acknowledge the operation. Delivery is uncertain; retry the same operation to avoid duplicates.",
 						),
 					),
 				timeout,
@@ -387,7 +422,7 @@ export class T3Client {
 								value.exit?._tag === "Success"
 									? undefined
 									: new Error(
-											"T3 could not create this thread. Check the project’s model and provider in T3 Code.",
+											"T3 rejected the operation. Check the thread, project model, and provider in T3 Code.",
 										),
 							);
 						}
@@ -416,6 +451,118 @@ export class T3Client {
 				),
 			);
 		});
+	}
+
+	async citationChoices(worktreePath: string): Promise<T3CitationChoices> {
+		const { descriptor, snapshot } = await this.snapshot();
+		return {
+			origin: this.origin,
+			environmentId: descriptor.environmentId,
+			threads: listT3Threads(snapshot, worktreePath),
+		};
+	}
+
+	async sendCitation(
+		worktree: Worktree,
+		mainPath: string,
+		request: T3CitationRequest,
+		checkpoint: () => Promise<void> = async () => {},
+	): Promise<{ target: T3Target; delivery: "queued" | "started" | "sent" }> {
+		if (request.origin && request.origin !== this.origin)
+			throw new Error(
+				"The T3 server changed. Restore the original server before retrying this batch.",
+			);
+		request.origin = this.origin;
+		await checkpoint();
+		if (!request.target) {
+			const { descriptor, snapshot } = await this.snapshot();
+			const selection = request.selection;
+			if (
+				selection &&
+				(selection.origin !== this.origin ||
+					selection.environmentId !== descriptor.environmentId)
+			)
+				throw new Error(
+					"The selected T3 environment changed. Select the destination again.",
+				);
+			const existing =
+				selection?.kind === "new"
+					? undefined
+					: selection?.kind === "thread"
+						? listT3Threads(snapshot, worktree.path).find(
+								(thread) => thread.id === selection.threadId,
+							)
+						: findT3Thread(snapshot, worktree.path);
+			if (selection?.kind === "thread" && !existing)
+				throw new Error(
+					"The selected thread is no longer available for this worktree. Clear the pending retry and choose another destination.",
+				);
+			if (!existing)
+				request.createCommand = t3CreateCommand(
+					snapshot,
+					worktree,
+					mainPath,
+				);
+			const threadId =
+				existing?.id ?? (request.createCommand!.threadId as string);
+			request.target = {
+				threadId,
+				environmentId: descriptor.environmentId,
+				url: t3ThreadUrl(descriptor.environmentId, threadId),
+				created: !existing,
+			};
+		}
+		await checkpoint();
+		const descriptor = await this.descriptor();
+		if (descriptor.environmentId !== request.target.environmentId)
+			throw new Error(
+				"The T3 environment changed. Open the original environment before retrying this citation.",
+			);
+		if (request.createCommand) {
+			await this.dispatch(request.createCommand);
+			request.createCommand = undefined;
+			await checkpoint();
+		}
+		await this.dispatch({
+			type: "message.dispatch",
+			commandId: request.commandId,
+			messageId: request.messageId,
+			threadId: request.target.threadId,
+			createdBy: "user",
+			creationSource: "web",
+			text: request.text,
+			attachments: [],
+			// The server serializes this decision: start when idle, queue behind
+			// active work. Never choose steering based on a stale client snapshot.
+			dispatchMode: { type: "queue_after_active" },
+		});
+		let delivery: "queued" | "started" | "sent" = "sent";
+		try {
+			const token = await this.token(descriptor);
+			const result = await this.http<{
+				projection: {
+					runs: { userMessageId: string; status: string }[];
+				};
+			}>(
+				`/api/orchestration/threads/${encodeURIComponent(request.target.threadId)}/bounded`,
+				token,
+			);
+			const run = result.projection.runs.find(
+				(run) => run.userMessageId === request.messageId,
+			);
+			if (run?.status === "queued") delivery = "queued";
+			else if (
+				run &&
+				["starting", "running", "waiting", "completed"].includes(
+					run.status,
+				)
+			)
+				delivery = "started";
+		} catch {
+			// Dispatch was acknowledged. A failed status lookup must never turn
+			// successful delivery into a retry prompt.
+		}
+		return { target: request.target, delivery };
 	}
 
 	open(

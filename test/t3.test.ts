@@ -5,6 +5,7 @@ import { once } from "node:events";
 import { WebSocketServer } from "ws";
 import {
 	findT3Thread,
+	createCitationRequest,
 	T3Client,
 	t3CreateCommand,
 	t3ThreadUrl,
@@ -138,9 +139,20 @@ test("T3 links encode identifiers and authentication is restricted to loopback",
 
 async function serverFixture(
 	data: T3Snapshot,
-	options: { fail?: boolean; redirect?: boolean } = {},
+	options: {
+		fail?: boolean;
+		redirect?: boolean;
+		busy?: boolean;
+		dropMessageAck?: boolean;
+		dropCreateAck?: boolean;
+		statusFailure?: boolean;
+		rejectMessage?: boolean;
+	} = {},
 ) {
 	const commands: Record<string, unknown>[] = [];
+	const receipts = new Set<string>();
+	const runs: { userMessageId: string; status: string }[] = [];
+	let dropped = false;
 	let issued = 0;
 	const server = createServer((req, res) => {
 		res.setHeader("Content-Type", "application/json");
@@ -170,6 +182,11 @@ async function serverFixture(
 			res.end('{"ticket":"test-ticket"}');
 			return;
 		}
+		if (req.url?.startsWith("/api/orchestration/threads/")) {
+			res.writeHead(options.statusFailure ? 503 : 200);
+			res.end(JSON.stringify({ projection: { runs } }));
+			return;
+		}
 		res.writeHead(404);
 		res.end("{}");
 	});
@@ -187,9 +204,48 @@ async function serverFixture(
 				socket.close();
 				return;
 			}
-			data.threads.push(
-				thread(message.payload.threadId, message.payload),
-			);
+			if (
+				options.rejectMessage &&
+				message.payload.type === "message.dispatch"
+			) {
+				socket.send(
+					JSON.stringify({
+						_tag: "Exit",
+						requestId: message.id,
+						exit: { _tag: "Failure" },
+					}),
+				);
+				return;
+			}
+			if (!receipts.has(message.payload.commandId)) {
+				receipts.add(message.payload.commandId);
+				if (message.payload.type === "thread.create")
+					data.threads.push(
+						thread(message.payload.threadId, message.payload),
+					);
+				else if (message.payload.type === "message.dispatch") {
+					assert.deepEqual(message.payload.dispatchMode, {
+						type: "queue_after_active",
+					});
+					assert.equal(message.payload.createdBy, "user");
+					assert.equal(message.payload.modelSelection, undefined);
+					runs.push({
+						userMessageId: message.payload.messageId,
+						status: options.busy ? "queued" : "running",
+					});
+				}
+			}
+			if (
+				!dropped &&
+				((options.dropMessageAck &&
+					message.payload.type === "message.dispatch") ||
+					(options.dropCreateAck &&
+						message.payload.type === "thread.create"))
+			) {
+				dropped = true;
+				socket.close();
+				return;
+			}
 			socket.send(
 				JSON.stringify([
 					{
@@ -217,6 +273,7 @@ async function serverFixture(
 	return {
 		client,
 		commands,
+		runs,
 		issued: () => issued,
 		close: async () => {
 			sockets.clients.forEach((socket) => socket.terminate());
@@ -257,4 +314,189 @@ test("T3 reports dropped RPC connections and does not follow authenticated redir
 	const redirected = await serverFixture(snapshot(), { redirect: true });
 	t.after(redirected.close);
 	await assert.rejects(redirected.client.snapshot(), /Cannot reach/);
+});
+
+test("citations reuse the latest exact-worktree thread and queue safely behind active work", async (t) => {
+	for (const busy of [false, true]) {
+		const f = await serverFixture(
+			snapshot([
+				thread("old"),
+				thread("recent", { lastVisitedAt: "2026-10-13T12:00:00Z" }),
+			]),
+			{ busy },
+		);
+		t.after(f.close);
+		const request = createCitationRequest(
+			"Explain this code\n\nfile.ts:1–2\nconst value = 1;",
+		);
+		const result = await f.client.sendCitation(
+			worktree,
+			"/repo/main",
+			request,
+		);
+		assert.equal(result.target.threadId, "recent");
+		assert.equal(result.target.created, false);
+		assert.equal(result.delivery, busy ? "queued" : "started");
+		assert.equal(f.commands.length, 1);
+		assert.equal(f.commands[0]!.text, request.text);
+	}
+});
+
+test("citation retries preserve destination and IDs after lost create or message acknowledgement", async (t) => {
+	for (const dropCreateAck of [false, true]) {
+		const data = snapshot();
+		const f = await serverFixture(data, {
+			dropCreateAck,
+			dropMessageAck: !dropCreateAck,
+		});
+		t.after(f.close);
+		const request = createCitationRequest("citation");
+		await assert.rejects(
+			f.client.sendCitation(worktree, "/repo/main", request),
+			/closed the connection/,
+		);
+		const target = request.target!.threadId;
+		data.threads.push(
+			thread("visited-while-retrying", {
+				lastVisitedAt: "2026-10-14T12:00:00Z",
+			}),
+		);
+		const result = await f.client.sendCitation(
+			worktree,
+			"/repo/main",
+			request,
+		);
+		assert.equal(result.target.threadId, target);
+		assert.equal(f.runs.length, 1, "one durable message despite retry");
+		assert.equal(
+			data.threads.filter((item) => item.id === target).length,
+			1,
+		);
+		const duplicates = f.commands.filter(
+			(item) =>
+				item.type ===
+				(dropCreateAck ? "thread.create" : "message.dispatch"),
+		);
+		assert.equal(duplicates.length, 2);
+		assert.deepEqual(duplicates[0], duplicates[1]);
+	}
+});
+
+test("citation acknowledgement survives status lookup failure; rejected sends remain failures", async (t) => {
+	const f = await serverFixture(snapshot([thread("existing")]), {
+		statusFailure: true,
+	});
+	t.after(f.close);
+	assert.equal(
+		(
+			await f.client.sendCitation(
+				worktree,
+				"/repo/main",
+				createCitationRequest("citation"),
+			)
+		).delivery,
+		"sent",
+	);
+	const rejected = await serverFixture(snapshot([thread("existing")]), {
+		rejectMessage: true,
+	});
+	t.after(rejected.close);
+	await assert.rejects(
+		rejected.client.sendCitation(
+			worktree,
+			"/repo/main",
+			createCitationRequest("citation"),
+		),
+		/rejected the operation/,
+	);
+	assert.equal(rejected.runs.length, 0);
+});
+
+test("citation transport persists its destination before dispatch and refuses retry on a different server", async (t) => {
+	const f = await serverFixture(snapshot());
+	t.after(f.close);
+	const request = createCitationRequest("batch");
+	let checkpoints = 0;
+	await assert.rejects(
+		f.client.sendCitation(worktree, "/repo/main", request, async () => {
+			checkpoints++;
+			if (request.target) {
+				assert.ok(request.createCommand);
+				assert.equal(f.commands.length, 0);
+				throw new Error("disk full");
+			}
+		}),
+		/disk full/,
+	);
+	assert.equal(checkpoints, 2);
+	assert.equal(
+		f.commands.length,
+		0,
+		"no external mutation before durable destination",
+	);
+	const saved = JSON.parse(JSON.stringify(request));
+	await f.client.sendCitation(worktree, "/repo/main", saved);
+	assert.equal(f.runs.length, 1);
+	const other = await serverFixture(snapshot());
+	t.after(other.close);
+	await assert.rejects(
+		other.client.sendCitation(worktree, "/repo/main", saved),
+		/server changed/,
+	);
+	assert.equal(other.commands.length, 0);
+});
+
+test("citation destinations list only matching active threads, choose an older thread, or force a new one", async (t) => {
+	const data = snapshot([
+		thread("recent", {
+			title: "Recent",
+			lastVisitedAt: "2026-10-15T12:00:00Z",
+		}),
+		thread("older", { title: "Older" }),
+		thread("elsewhere", { worktreePath: "/other" }),
+		thread("archived", { archivedAt: "now" }),
+	]);
+	const f = await serverFixture(data);
+	t.after(f.close);
+	const choices = await f.client.citationChoices(worktree.path);
+	assert.deepEqual(
+		choices.threads.map((thread) => thread.id),
+		["recent", "older"],
+	);
+	const request = createCitationRequest("explicit older destination");
+	request.selection = {
+		kind: "thread",
+		threadId: "older",
+		title: "Older",
+		origin: choices.origin,
+		environmentId: choices.environmentId,
+	};
+	const selected = await f.client.sendCitation(
+		worktree,
+		"/repo/main",
+		request,
+	);
+	assert.equal(selected.target.threadId, "older");
+	const fresh = createCitationRequest("new destination");
+	fresh.selection = {
+		kind: "new",
+		title: "New thread",
+		origin: choices.origin,
+		environmentId: choices.environmentId,
+	};
+	const created = await f.client.sendCitation(worktree, "/repo/main", fresh);
+	assert.equal(created.target.created, true);
+	assert.ok(!["recent", "older"].includes(created.target.threadId));
+	const invalid = createCitationRequest("invalid destination");
+	invalid.selection = { ...request.selection, threadId: "elsewhere" };
+	const count = f.commands.length;
+	await assert.rejects(
+		f.client.sendCitation(worktree, "/repo/main", invalid),
+		/no longer available/,
+	);
+	assert.equal(
+		f.commands.length,
+		count,
+		"never silently falls back from an invalid explicit selection",
+	);
 });
