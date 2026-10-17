@@ -9,6 +9,7 @@ import { testActions } from "./actions-integration";
 import { testPullRequestSetting } from "./pull-requests-integration";
 import { testWorkspaceActions } from "./workspace-actions-integration";
 import { testCurrentPullRequest } from "./current-pull-request-integration";
+import { testDuplicate } from "./duplicate-integration";
 
 async function waitFor(
 	check: () => Promise<boolean>,
@@ -63,6 +64,7 @@ export async function run(): Promise<void> {
 		const worky = await extension.activate();
 		const commands = await vscode.commands.getCommands(true);
 		for (const name of [
+			"worky.duplicate",
 			"worky.openInT3",
 			"worky.openCurrentInT3",
 			"worky.newT3Thread",
@@ -284,6 +286,7 @@ export async function run(): Promise<void> {
 			await testPullRequestSetting(worky);
 			await testWorkspaceActions(worky);
 			await testCurrentPullRequest(worky);
+			await testDuplicate(worky);
 		} else {
 			// A fresh extension host opening an already prepared worktree must do nothing.
 			await new Promise((resolve) => setTimeout(resolve, 1500));
