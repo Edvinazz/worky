@@ -993,7 +993,11 @@ export class Worktrees {
 		});
 	}
 
-	async remove(worktreePath: string, currentPath?: string): Promise<void> {
+	async remove(
+		worktreePath: string,
+		currentPath?: string,
+		beforeRemove?: (worktreePath: string) => Promise<void>,
+	): Promise<void> {
 		if (worktreePath === currentPath)
 			throw new Error(
 				"Open another worktree before deleting the one in this window.",
@@ -1026,6 +1030,8 @@ export class Worktrees {
 				throw new Error(
 					"This worktree has changes or untracked files. Commit, stash, or remove them before deleting it.",
 				);
+			// Only after the checks, so teardown never removes the data of a worktree that stays.
+			await beforeRemove?.(item.path);
 			await git(
 				this.config.repositoryPath,
 				["worktree", "remove", "--", item.path],

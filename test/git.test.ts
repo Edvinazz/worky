@@ -332,3 +332,31 @@ test("fork PRs can recreate a removed worktree while unrelated local branches ar
 		/not associated/,
 	);
 });
+
+test("deletion runs teardown only after its checks pass and keeps the worktree when teardown fails", async (t) => {
+	const f = await fixture();
+	t.after(f.cleanup);
+	const { worktree } = await f.service.create("PLAN-teardown");
+	const calls: string[] = [];
+	await fs.writeFile(path.join(worktree.path, "new-file"), "important");
+	await assert.rejects(
+		f.service.remove(worktree.path, undefined, async (target) => {
+			calls.push(target);
+		}),
+		/changes or untracked/,
+	);
+	assert.equal(calls.length, 0);
+	await fs.unlink(path.join(worktree.path, "new-file"));
+	await assert.rejects(
+		f.service.remove(worktree.path, undefined, async () => {
+			throw new Error("teardown failed");
+		}),
+		/teardown failed/,
+	);
+	await fs.stat(worktree.path);
+	await f.service.remove(worktree.path, undefined, async (target) => {
+		calls.push(target);
+	});
+	assert.deepEqual(calls, [worktree.path]);
+	await assert.rejects(fs.stat(worktree.path), { code: "ENOENT" });
+});
