@@ -8,6 +8,7 @@ import { canonicalPath, isWithinDirectory } from "./paths";
 import { GitHubClient } from "./github";
 import { message, PullRequest, Worktree } from "./model";
 import { SetupManager, TerminalTasks } from "./setup";
+import { runTeardown, TeardownError } from "./teardown";
 import { T3Client } from "./t3";
 import { Citations, CitationDestination, CitationRow } from "./citations";
 import { Notifications } from "./notifications";
@@ -807,21 +808,43 @@ export class Worky implements vscode.Disposable {
 		else await this.open(result.worktree, newWindow);
 	}
 
-	private async remove(worktree: Worktree): Promise<void> {
+	private async remove(worktree: Worktree, teardown = true): Promise<void> {
+		let failed: TeardownError | undefined;
 		await this.withWorktreeActivity(worktree, "Deleting…", async () => {
 			await vscode.window.withProgress(
 				{
 					location: vscode.ProgressLocation.Notification,
 					title: `Worky: deleting ${worktree.branch ?? "worktree"}`,
 				},
-				() =>
-					this.requireRepository().remove(
-						worktree.path,
-						this.worktreeView.currentPath,
-					),
+				async () => {
+					try {
+						await this.requireRepository().remove(
+							worktree.path,
+							this.worktreeView.currentPath,
+							teardown
+								? (path) =>
+										runTeardown(path, (line) =>
+											this.log.appendLine(line),
+										)
+								: undefined,
+						);
+					} catch (error) {
+						if (!(error instanceof TeardownError)) throw error;
+						failed = error;
+					}
+				},
 			);
 			await this.refreshWorktrees(true);
 		});
+		if (!failed) return;
+		const choice = await vscode.window.showWarningMessage(
+			`${failed.message} Delete the worktree anyway?`,
+			{ modal: true },
+			"Delete Anyway",
+			"Show Log",
+		);
+		if (choice === "Delete Anyway") await this.remove(worktree, false);
+		else if (choice === "Show Log") this.log.show();
 	}
 
 	private citationDestination(worktree: Worktree): CitationDestination {

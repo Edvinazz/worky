@@ -8,7 +8,7 @@ Manage Git worktrees and GitHub pull requests in VS Code. Works locally and over
 - Open a worktree in the current VS Code window or a new window.
 - Copy a worktree or main checkout to a new branch, preserving staged, unstaged, and untracked changes.
 - See your current pull request and PRs awaiting your review; open them on GitHub or in a worktree.
-- Automatically run your `worky.json` setup commands for new worktrees, each in its own terminal.
+- Automatically run your `worky.json` setup commands for new worktrees, each in its own terminal, and its teardown commands before deleting one.
 - Open an existing T3 conversation or start a new one for a worktree.
 - Collect code snippets with optional comments, edit them as Markdown, and send them together in one T3 message when ready. Supports unsaved files, Git history, and staged changes; saved snippets survive VS Code restarts.
 
@@ -49,6 +49,21 @@ Optionally commit a `worky.json` file at the repository root:
 Setup commands run at the same time, each in its own terminal. Add `cwd` to run a command in a subdirectory. You can keep using the terminals after setup finishes.
 
 Configuration comes from the open checkout. New worktrees run setup from their own `worky.json`; without it, no setup runs. Omit `baseBranch` to use the remote default branch.
+
+Add `teardown` commands to clean up before Worky deletes a worktree, such as dropping its databases:
+
+```json
+{
+	"teardown": [
+		{
+			"name": "Databases",
+			"command": "npm run db:drop"
+		}
+	]
+}
+```
+
+Teardown commands run one at a time in the worktree, from its own `worky.json`, after Worky has checked that the worktree can be deleted. Their output goes to the Worky log. If one fails, Worky asks whether to delete the worktree anyway.
 
 ## T3 Code
 

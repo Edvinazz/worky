@@ -168,3 +168,26 @@ test("repositories without a remote can create worktrees from their local branch
 	assert.equal(service.config.baseBranch, "development");
 	assert.equal((await service.create("offline")).created, true);
 });
+
+test("teardown accepts the same commands as setup and rejects malformed entries", () => {
+	assert.deepEqual(
+		parseConfig({
+			teardown: [{ name: "Databases", cwd: "apps/api", command: "x" }],
+		}),
+		{
+			setup: [],
+			teardown: [{ name: "Databases", cwd: "apps/api", command: "x" }],
+		},
+	);
+	for (const teardown of [
+		"bad",
+		[{ name: "A" }],
+		[{ name: "A", cwd: "../other", command: "x" }],
+		[
+			{ name: "A", command: "x" },
+			{ name: "A", command: "y" },
+		],
+	]) {
+		assert.throws(() => parseConfig({ teardown }));
+	}
+});

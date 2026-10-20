@@ -44,6 +44,33 @@
 				}
 			}
 		},
+		"teardown": {
+			"type": "array",
+			"description": "Commands to run one at a time in the worktree before Worky deletes it, such as dropping its databases. If one fails, Worky asks before deleting the worktree. Omit for no teardown.",
+			"items": {
+				"type": "object",
+				"required": ["name", "command"],
+				"additionalProperties": false,
+				"properties": {
+					"name": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Unique name, shown in the Worky log."
+					},
+					"cwd": {
+						"type": "string",
+						"default": ".",
+						"minLength": 1,
+						"description": "Directory relative to the new worktree root. Use forward slashes; parent traversal and absolute paths are not allowed."
+					},
+					"command": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Bash command to run."
+					}
+				}
+			}
+		},
 		"pullRequests": {
 			"type": "object",
 			"additionalProperties": false,

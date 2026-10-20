@@ -11,6 +11,7 @@ export interface ProjectConfig {
 	remote?: string;
 	pullRequests?: { enabled?: boolean };
 	setup: SetupCommand[];
+	teardown?: SetupCommand[];
 }
 
 function object(value: unknown): value is Record<string, unknown> {
@@ -33,6 +34,7 @@ export function parseConfig(value: unknown): ProjectConfig {
 				"remote",
 				"pullRequests",
 				"setup",
+				"teardown",
 			].includes(key)
 		)
 			throw new Error(`Unknown worky.json field: ${key}.`);
@@ -54,12 +56,19 @@ export function parseConfig(value: unknown): ProjectConfig {
 			throw new Error("pullRequests.enabled must be a boolean.");
 		config.pullRequests = enabled === undefined ? {} : { enabled };
 	}
-	if (value.setup === undefined) return config;
-	if (!Array.isArray(value.setup))
-		throw new Error("setup must be an array of terminal commands.");
+	if (value.setup !== undefined)
+		config.setup = parseCommands(value.setup, "setup");
+	if (value.teardown !== undefined)
+		config.teardown = parseCommands(value.teardown, "teardown");
+	return config;
+}
+
+function parseCommands(value: unknown, field: string): SetupCommand[] {
+	if (!Array.isArray(value))
+		throw new Error(`${field} must be an array of commands.`);
 	const names = new Set<string>();
-	config.setup = value.setup.map((entry, index) => {
-		const label = `setup[${index}]`;
+	return value.map((entry, index) => {
+		const label = `${field}[${index}]`;
 		if (!object(entry)) throw new Error(`${label} must be an object.`);
 		for (const key of Object.keys(entry)) {
 			if (!["name", "cwd", "command"].includes(key))
@@ -67,7 +76,7 @@ export function parseConfig(value: unknown): ProjectConfig {
 		}
 		const name = string(entry.name, `${label}.name`).trim();
 		if (names.has(name))
-			throw new Error(`Duplicate setup terminal name: ${name}.`);
+			throw new Error(`Duplicate ${field} command name: ${name}.`);
 		names.add(name);
 		const cwd =
 			entry.cwd === undefined ? "." : string(entry.cwd, `${label}.cwd`);
@@ -88,7 +97,6 @@ export function parseConfig(value: unknown): ProjectConfig {
 			command: string(entry.command, `${label}.command`),
 		};
 	});
-	return config;
 }
 
 export async function readConfig(root: string): Promise<ProjectConfig> {
