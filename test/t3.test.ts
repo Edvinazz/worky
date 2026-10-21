@@ -5,6 +5,7 @@ import { once } from "node:events";
 import { WebSocketServer } from "ws";
 import {
 	findT3Thread,
+	listT3Threads,
 	createCitationRequest,
 	T3Client,
 	t3CreateCommand,
@@ -67,8 +68,20 @@ test("T3 reuses the most recently visited exact worktree across project layouts"
 			archivedAt: "now",
 			updatedAt: "2026-10-12T17:00:00Z",
 		}),
+		thread("subagent", {
+			lastVisitedAt: "2026-10-12T17:30:00Z",
+			lineage: { relationshipToParent: "subagent" },
+		}),
+		thread("fork-of-old", {
+			updatedAt: "2026-10-12T11:00:00Z",
+			lineage: { relationshipToParent: "fork" },
+		}),
 	]);
 	assert.equal(findT3Thread(data, worktree.path)?.id, "recent");
+	assert.deepEqual(
+		listT3Threads(data, worktree.path).map((item) => item.id),
+		["recent", "fork-of-old", "old"],
+	);
 	data.projects.push({ id: "standalone", workspaceRoot: worktree.path });
 	data.threads.push(
 		thread("standalone", {
@@ -90,7 +103,14 @@ test("T3 creates an idle thread in the existing checkout with project defaults",
 	assert.equal(command.runtimeMode, "approval-required");
 	assert.equal(command.message, undefined);
 	assert.equal(command.workspaceStrategy, undefined);
-	const data = snapshot([thread("previous", { runtimeMode: "full-access" })]);
+	const data = snapshot([
+		thread("previous", { runtimeMode: "full-access" }),
+		thread("newer-subagent", {
+			updatedAt: "2026-10-12T11:00:00Z",
+			modelSelection: { ...model, model: "subagent-model" },
+			lineage: { relationshipToParent: "subagent" },
+		}),
+	]);
 	data.projects[0]!.defaultModelSelection = null;
 	assert.deepEqual(
 		t3CreateCommand(data, worktree, "/repo/main").modelSelection,
