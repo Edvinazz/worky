@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { matchesPullRequest } from "./git";
-import { PullRequest, Worktree } from "./model";
+import { compareWorktrees, PullRequest, Worktree } from "./model";
 
 export function ageLabel(date?: Date): string {
 	if (!date || !Number.isFinite(date.getTime())) return "age unknown";
@@ -227,14 +227,7 @@ export class WorktreesView implements vscode.TreeDataProvider<
 			: [];
 		rows.push(
 			...[...items.values()]
-				.sort(
-					(a, b) =>
-						Number(b.path === this.currentPath) -
-							Number(a.path === this.currentPath) ||
-						Number(b.main) - Number(a.main) ||
-						(b.createdAt?.getTime() ?? 0) -
-							(a.createdAt?.getTime() ?? 0),
-				)
+				.sort(compareWorktrees(this.currentPath))
 				.map(
 					(item) =>
 						new WorktreeItem(

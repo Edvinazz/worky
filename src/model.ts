@@ -76,6 +76,16 @@ export function setupStatus(
 	return "interrupted";
 }
 
+/** Current checkout first, then the main checkout, then newest. */
+export function compareWorktrees(
+	currentPath?: string,
+): (a: Worktree, b: Worktree) => number {
+	return (a, b) =>
+		Number(b.path === currentPath) - Number(a.path === currentPath) ||
+		Number(b.main) - Number(a.main) ||
+		(b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0);
+}
+
 export function message(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }

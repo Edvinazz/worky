@@ -13,6 +13,7 @@ import { T3Client } from "./t3";
 import { Citations, CitationDestination, CitationRow } from "./citations";
 import { Notifications } from "./notifications";
 import { CitationStore } from "./citation-store";
+import { GoToItem, goToItems } from "./go-to";
 import {
 	pullRequestKey,
 	PullRequestItem,
@@ -161,15 +162,19 @@ export class Worky implements vscode.Disposable {
 		command("retrySetup", (item: WorktreeItem) =>
 			this.retry(item.worktree),
 		);
-		command("openPullRequest", (item: PullRequestItem) =>
-			this.openPullRequest(item),
-		);
-		command("openPullRequestNewWindow", (item: PullRequestItem) =>
-			this.openPullRequest(item, true),
-		);
-		command("openPullRequestCurrentWindow", (item: PullRequestItem) =>
-			this.openPullRequest(item, false),
-		);
+		command("openPullRequest", (item: PullRequestItem) => {
+			if (this.pullRequestsEnabled)
+				return this.openPullRequest(item.pullRequest);
+		});
+		command("openPullRequestNewWindow", (item: PullRequestItem) => {
+			if (this.pullRequestsEnabled)
+				return this.openPullRequest(item.pullRequest, true);
+		});
+		command("openPullRequestCurrentWindow", (item: PullRequestItem) => {
+			if (this.pullRequestsEnabled)
+				return this.openPullRequest(item.pullRequest, false);
+		});
+		command("goTo", () => this.goTo());
 		command("openPullRequestOnGitHub", (item: PullRequestItem) => {
 			if (this.pullRequestsEnabled)
 				return this.openPullRequestOnGitHub(item.pullRequest);
@@ -631,11 +636,11 @@ export class Worky implements vscode.Disposable {
 		);
 	}
 
-	private async create(): Promise<void> {
+	private async create(branch?: string): Promise<void> {
 		if (this.creating) return;
 		this.creating = true;
 		try {
-			await this.createWorktree();
+			await this.createWorktree(branch);
 		} finally {
 			this.creating = false;
 			this.worktreeView.creating = undefined;
@@ -643,10 +648,11 @@ export class Worky implements vscode.Disposable {
 		}
 	}
 
-	private async createWorktree(): Promise<void> {
+	private async createWorktree(value?: string): Promise<void> {
 		const repository = this.requireRepository();
 		const branch = await vscode.window.showInputBox({
 			title: "Create New Worktree",
+			value,
 			prompt: `Branch name — new branches start from ${[repository.config.remote, repository.config.baseBranch].filter(Boolean).join("/")}`,
 			placeHolder: "feature/my-change",
 			ignoreFocusOut: true,
@@ -760,11 +766,10 @@ export class Worky implements vscode.Disposable {
 	}
 
 	private async openPullRequest(
-		item: PullRequestItem,
+		pr: PullRequest,
 		newWindow = this.openInNewWindow,
 	): Promise<void> {
 		if (!this.pullRequestsEnabled) return;
-		const pr = item.pullRequest;
 		const key = pullRequestKey(pr);
 		if (this.pullRequestView.activity.has(key)) return;
 		const existing = this.worktreeView.items.find((worktree) =>
@@ -775,7 +780,7 @@ export class Worky implements vscode.Disposable {
 		this.pullRequestView.refresh();
 		try {
 			const action = () =>
-				this.checkoutPullRequest(item, newWindow, Boolean(existing));
+				this.checkoutPullRequest(pr, newWindow, Boolean(existing));
 			if (existing)
 				await this.withWorktreeActivity(existing, "Opening…", action);
 			else await action();
@@ -786,11 +791,10 @@ export class Worky implements vscode.Disposable {
 	}
 
 	private async checkoutPullRequest(
-		item: PullRequestItem,
+		pr: PullRequest,
 		newWindow: boolean,
 		alreadyBusy: boolean,
 	): Promise<void> {
-		const pr = item.pullRequest;
 		const branch =
 			pr.headRepository.toLowerCase() === pr.repository.toLowerCase()
 				? pr.headBranch
@@ -806,6 +810,114 @@ export class Worky implements vscode.Disposable {
 		if (result.notice) this.notifications.show(`Worky: ${result.notice}`);
 		if (alreadyBusy) await this.openFolder(result.worktree, newWindow);
 		else await this.open(result.worktree, newWindow);
+	}
+
+	private goTo(): void {
+		this.requireRepository();
+		const picker = vscode.window.createQuickPick<GoToItem>();
+		picker.title = "Go to Worktree or Pull Request";
+		picker.placeholder = "Search by branch, PR number, or title";
+		picker.matchOnDescription = true;
+		const newWindow = this.openInNewWindow;
+		const windowButton: vscode.QuickInputButton = {
+			iconPath: new vscode.ThemeIcon(
+				newWindow ? "go-to-file" : "empty-window",
+			),
+			tooltip: newWindow
+				? "Open in Current Window"
+				: "Open in New Window",
+		};
+		const gitHubButton: vscode.QuickInputButton = {
+			iconPath: new vscode.ThemeIcon("link-external"),
+			tooltip: "Open on GitHub",
+		};
+		// Always shown, so a query matching nothing can still create. While searching it
+		// goes last so that real matches keep Enter.
+		const createItem: GoToItem = {
+			label: "$(add) Create New Worktree…",
+			alwaysShow: true,
+		};
+		let open = true;
+		let searching = false;
+		const update = () => {
+			if (!open) return;
+			searching = Boolean(picker.value);
+			const { worktrees, pullRequests } = goToItems(
+				this.worktreeView.items,
+				this.pullRequestsEnabled ? this.pullRequestView.items : [],
+				this.worktreeView.currentPath,
+			);
+			const withButtons = (item: GoToItem): GoToItem => ({
+				...item,
+				buttons: item.pullRequest
+					? [windowButton, gitHubButton]
+					: [windowButton],
+			});
+			picker.items = [
+				...(searching ? [] : [createItem]),
+				{
+					label: "Worktrees",
+					kind: vscode.QuickPickItemKind.Separator,
+				},
+				...worktrees.map(withButtons),
+				...(pullRequests.length
+					? [
+							{
+								label: "Pull Requests",
+								kind: vscode.QuickPickItemKind.Separator,
+							},
+							...pullRequests.map(withButtons),
+						]
+					: []),
+				...(searching
+					? [
+							{
+								label: "",
+								kind: vscode.QuickPickItemKind.Separator,
+							},
+							createItem,
+						]
+					: []),
+			];
+		};
+		const go = (item: GoToItem, window = newWindow) => {
+			picker.hide();
+			const action =
+				item === createItem
+					? this.create(picker.value.trim() || undefined)
+					: item.worktree
+						? this.open(item.worktree, window)
+						: item.pullRequest &&
+							this.openPullRequest(item.pullRequest, window);
+			void Promise.resolve(action).catch((error) => this.report(error));
+		};
+		picker.onDidAccept(() => {
+			const item = picker.selectedItems[0];
+			if (item) go(item);
+		});
+		picker.onDidTriggerItemButton(({ item, button }) => {
+			if (button === windowButton) go(item, !newWindow);
+			else if (item.pullRequest)
+				void this.openPullRequestOnGitHub(item.pullRequest);
+		});
+		picker.onDidChangeValue(() => {
+			if (Boolean(picker.value) !== searching) update();
+		});
+		picker.onDidHide(() => {
+			open = false;
+			picker.dispose();
+		});
+		update();
+		picker.show();
+		// Show what is already loaded at once; PRs load on demand if their view was never opened.
+		picker.busy = true;
+		void this.refresh()
+			.catch((error) => this.log.appendLine(message(error)))
+			.finally(() => {
+				if (!open) return;
+				picker.busy = false;
+				update();
+			});
 	}
 
 	private async remove(worktree: Worktree, teardown = true): Promise<void> {
