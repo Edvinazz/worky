@@ -2,7 +2,7 @@
 	"name": "worky",
 	"displayName": "Worky",
 	"description": "Git worktrees, GitHub pull requests, and repository-defined setup terminals.",
-	"version": "0.1.4",
+	"version": "0.1.5",
 	"publisher": "Luksys3",
 	"license": "UNLICENSED",
 	"private": true,
@@ -576,7 +576,7 @@
 		"test": "tsx --test test/*.test.ts",
 		"test:integration": "node test/run-integration.mjs",
 		"vscode:prepublish": "pnpm typecheck && pnpm build",
-		"package": "vsce package --no-dependencies --allow-missing-repository --out worky-0.1.4.vsix"
+		"package": "vsce package --no-dependencies --allow-missing-repository --out worky-0.1.5.vsix"
 	},
 	"packageManager": "pnpm@11.4.0",
 	"devDependencies": {
