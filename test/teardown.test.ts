@@ -57,6 +57,21 @@ test("a failing teardown command stops the remaining ones", async (t) => {
 	});
 });
 
+test("a teardown command that can't start is a teardown failure", async (t) => {
+	const root = await worktree([
+		{ name: "Missing", cwd: "apps/missing", command: "true" },
+	]);
+	t.after(() => fs.rm(root, { recursive: true, force: true }));
+	await assert.rejects(
+		runTeardown(root, () => {}),
+		(error) => {
+			assert.ok(error instanceof TeardownError);
+			assert.match(error.message, /"Missing" could not run/);
+			return true;
+		},
+	);
+});
+
 test("without teardown commands nothing runs", async (t) => {
 	const root = await worktree(undefined);
 	t.after(() => fs.rm(root, { recursive: true, force: true }));

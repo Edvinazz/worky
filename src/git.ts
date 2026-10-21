@@ -1030,6 +1030,26 @@ export class Worktrees {
 				throw new Error(
 					"This worktree has changes or untracked files. Commit, stash, or remove them before deleting it.",
 				);
+			// Git refuses to remove a worktree with checked-out submodules, like it checks them.
+			const gitDirectory = (
+				await git(item.path, ["rev-parse", "--absolute-git-dir"])
+			).trim();
+			const submodules = (
+				await git(item.path, ["ls-files", "--stage", "-z"])
+			)
+				.split("\0")
+				.filter((entry) => entry.startsWith("160000 "))
+				.map((entry) => entry.slice(entry.indexOf("\t") + 1));
+			for (const candidate of [
+				path.join(gitDirectory, "modules"),
+				...submodules.map((submodule) =>
+					path.join(item.path, submodule, ".git"),
+				),
+			])
+				if (await fs.lstat(candidate).catch(() => undefined))
+					throw new Error(
+						"Deleting worktrees with checked-out submodules is not supported yet.",
+					);
 			// Only after the checks, so teardown never removes the data of a worktree that stays.
 			await beforeRemove?.(item.path);
 			await git(
