@@ -347,6 +347,20 @@ test("deletion runs teardown only after its checks pass and keeps the worktree w
 	);
 	assert.equal(calls.length, 0);
 	await fs.unlink(path.join(worktree.path, "new-file"));
+	// A submodule Git still keeps for this worktree, which makes `git worktree remove` refuse it
+	const modules = path.join(
+		(await git(worktree.path, ["rev-parse", "--absolute-git-dir"])).trim(),
+		"modules",
+	);
+	await fs.mkdir(modules);
+	await assert.rejects(
+		f.service.remove(worktree.path, undefined, async (target) => {
+			calls.push(target);
+		}),
+		/submodules/,
+	);
+	assert.equal(calls.length, 0);
+	await fs.rm(modules, { recursive: true });
 	await assert.rejects(
 		f.service.remove(worktree.path, undefined, async () => {
 			throw new Error("teardown failed");
