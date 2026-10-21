@@ -54,7 +54,8 @@
 				},
 				{
 					"id": "worky.citations",
-					"name": "Citations"
+					"name": "Citations",
+					"visibility": "collapsed"
 				}
 			]
 		},
@@ -70,6 +71,12 @@
 				"title": "Create New Worktree",
 				"category": "Worky",
 				"icon": "$(add)"
+			},
+			{
+				"command": "worky.goTo",
+				"title": "Go to Worktree or Pull Request\u2026",
+				"category": "Worky",
+				"icon": "$(search)"
 			},
 			{
 				"command": "worky.refresh",
@@ -248,6 +255,11 @@
 		],
 		"menus": {
 			"view/title": [
+				{
+					"command": "worky.goTo",
+					"when": "view == worky.worktrees || view == worky.pullRequests",
+					"group": "navigation@0"
+				},
 				{
 					"command": "worky.create",
 					"when": "view == worky.worktrees",
@@ -533,6 +545,11 @@
 			}
 		],
 		"keybindings": [
+			{
+				"command": "worky.goTo",
+				"key": "ctrl+shift+w",
+				"when": "isMac || isLinux"
+			},
 			{
 				"command": "worky.openCurrentInT3",
 				"key": "ctrl+shift+t",
