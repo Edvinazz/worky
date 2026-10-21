@@ -43,6 +43,7 @@ export interface T3Thread {
 	lastVisitedAt?: string | null;
 	deletedAt?: string | null;
 	archivedAt?: string | null;
+	lineage?: { relationshipToParent?: string | null } | null;
 }
 export interface T3Snapshot {
 	projects: T3Project[];
@@ -98,6 +99,11 @@ function recent(a: T3Thread, b: T3Thread): number {
 	);
 }
 
+// Subagents are child work of another conversation, not conversations to open.
+function isSubagent(thread: T3Thread): boolean {
+	return thread.lineage?.relationshipToParent === "subagent";
+}
+
 export function listT3Threads(
 	snapshot: T3Snapshot,
 	worktreePath: string,
@@ -114,6 +120,7 @@ export function listT3Threads(
 				project &&
 				!thread.deletedAt &&
 				!thread.archivedAt &&
+				!isSubagent(thread) &&
 				samePath(
 					thread.worktreePath ?? project.workspaceRoot,
 					worktreePath,
@@ -147,7 +154,10 @@ export function t3CreateCommand(
 		);
 	const previous = snapshot.threads
 		.filter(
-			(thread) => thread.projectId === project.id && !thread.deletedAt,
+			(thread) =>
+				thread.projectId === project.id &&
+				!thread.deletedAt &&
+				!isSubagent(thread),
 		)
 		.sort(recent)[0];
 	const model = project.defaultModelSelection ?? previous?.modelSelection;
