@@ -29,6 +29,7 @@ Available on macOS and Linux.
 | ------------ | --------------------------------------------------------------- |
 | Ctrl+Shift+W | Go to a worktree or PR by branch, PR number, or title           |
 | Ctrl+Shift+T | Open current worktree's T3 chat                                 |
+| Ctrl+Shift+Y | Start a new T3 chat for the current worktree                    |
 | Ctrl+Shift+C | Save selected code for a later T3 message                       |
 | Ctrl+Shift+V | Send all saved citations (from an editor or the Citations list) |
 

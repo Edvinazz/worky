@@ -556,6 +556,11 @@
 				"when": "(isMac || isLinux) && worky.hasCurrentWorktree && !worky.currentWorktreeBusy"
 			},
 			{
+				"command": "worky.newCurrentT3Thread",
+				"key": "ctrl+shift+y",
+				"when": "(isMac || isLinux) && worky.hasCurrentWorktree && !worky.currentWorktreeBusy"
+			},
+			{
 				"command": "worky.cite",
 				"key": "ctrl+shift+c",
 				"when": "(isMac || isLinux) && editorTextFocus && editorHasSelection && isWorkspaceTrusted"
